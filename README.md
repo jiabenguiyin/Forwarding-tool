@@ -49,6 +49,27 @@ export DRY_RUN='false'
 >
 > 当前脚本只使用 Python 标准库网络模块（`urllib`），不再强依赖 `requests`。
 
+
+## Windows 快速运行
+
+你在 Windows CMD 里可以这样设置（当前窗口有效）：
+
+```bat
+set WEIBO_USER_INPUT=https://m.weibo.cn/u/5657426591?t=0
+set DRY_RUN=true
+python forward_weibo_to_bili.py
+```
+
+如果要正式发布到 B 站，再补上 Cookie：
+
+```bat
+set BILI_COOKIE=SESSDATA=...; bili_jct=...; DedeUserID=...
+set DRY_RUN=false
+python forward_weibo_to_bili.py
+```
+
+> 新版本在未提供 `BILI_COOKIE` 时会自动退化为 dry-run 预览模式，不会直接报错退出。
+
 ## 3) 先试跑（不发动态）
 
 ```bash

@@ -1,4 +1,6 @@
+import os
 import unittest
+from unittest import mock
 
 import forward_weibo_to_bili as fw
 
@@ -33,3 +35,15 @@ class BuildTextTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LoadConfigTests(unittest.TestCase):
+    def test_auto_fallback_to_dry_run_when_cookie_missing(self):
+        with mock.patch.dict(os.environ, {
+            "WEIBO_UID": "5657426591",
+            "BILI_COOKIE": "",
+            "DRY_RUN": "false",
+        }, clear=False):
+            config = fw.load_config()
+        self.assertTrue(config.dry_run)
+

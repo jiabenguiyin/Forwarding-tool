@@ -83,7 +83,8 @@ def load_config() -> Config:
     uid_list = normalize_uids(weibo_uid, weibo_uids)
 
     if not bili_cookie and not dry_run:
-        raise ValueError("缺少环境变量 BILI_COOKIE（DRY_RUN=true 时可不填）")
+        print("[WARN] 未提供 BILI_COOKIE，自动切换到 DRY_RUN=true（仅预览，不发布）。")
+        dry_run = True
 
     return Config(
         weibo_uids=uid_list,
