@@ -1,5 +1,6 @@
 import os
 import unittest
+import urllib.error
 from unittest import mock
 
 import forward_weibo_to_bili as fw
@@ -33,17 +34,35 @@ class BuildTextTests(unittest.TestCase):
         self.assertIn("第一行\n第二行", content)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class LoadConfigTests(unittest.TestCase):
     def test_auto_fallback_to_dry_run_when_cookie_missing(self):
-        with mock.patch.dict(os.environ, {
-            "WEIBO_UID": "5657426591",
-            "BILI_COOKIE": "",
-            "DRY_RUN": "false",
-        }, clear=False):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "WEIBO_UID": "5657426591",
+                "BILI_COOKIE": "",
+                "DRY_RUN": "false",
+            },
+            clear=False,
+        ):
             config = fw.load_config()
         self.assertTrue(config.dry_run)
 
+
+class RequestJsonTests(unittest.TestCase):
+    def test_http_432_message(self):
+        err = urllib.error.HTTPError(
+            url="https://m.weibo.cn/api/container/getIndex",
+            code=432,
+            msg="",
+            hdrs=None,
+            fp=None,
+        )
+        with mock.patch.object(fw._OPENER, "open", side_effect=err):
+            with self.assertRaises(RuntimeError) as cm:
+                fw.request_json("https://m.weibo.cn/api/container/getIndex")
+        self.assertIn("HTTP 432", str(cm.exception))
+
+
+if __name__ == "__main__":
+    unittest.main()

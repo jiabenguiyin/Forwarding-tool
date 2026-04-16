@@ -95,7 +95,9 @@ python forward_weibo_to_bili.py
 
 ## 常见问题
 
-- **提示“未获取到微博内容”**：通常是 UID 错误，或该账号不可见。
+- **提示“未获取到微博内容（可能是风控、IP 受限或 UID 不可见）”**：先确认 UID，再检查出口 IP 是否被限制。
+
+- **提示 HTTP 432**：这是微博风控拦截。脚本已改为移动端 UA + 预热页面 + CookieJar，若仍出现，请稍后重试或更换出口 IP。
 - **提示“BILI_COOKIE 中未找到 bili_jct”**：Cookie 不完整。
 - **提示 B 站 code 非 0**：Cookie 失效或风控限制，重新登录获取 Cookie。
 

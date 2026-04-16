@@ -10,6 +10,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,15 @@ WEIBO_API = "https://m.weibo.cn/api/container/getIndex"
 BILI_CREATE_API = "https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/create"
 DEFAULT_WEIBO_UID = "5657426591"
 M_WEIBO_UID_URL_RE = re.compile(r"https?://m\.weibo\.cn/u/(\d+)")
+MOBILE_UA = (
+    "Mozilla/5.0 (Linux; Android 13; Pixel 6) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/123.0.0.0 Mobile Safari/537.36"
+)
+
+# 通过 CookieJar 维持 m.weibo.cn 的上下文，降低 432 风控命中率。
+_COOKIE_JAR = CookieJar()
+_OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_COOKIE_JAR))
 
 
 @dataclass
@@ -71,7 +81,6 @@ def normalize_uids(raw_single_uid: str, raw_uids: str) -> list[str]:
 def load_config() -> Config:
     weibo_uid = os.getenv("WEIBO_UID", "").strip()
     weibo_uids = os.getenv("WEIBO_UIDS", "").strip()
-    # 允许直接粘贴 m.weibo.cn 用户主页链接。
     weibo_user_input = os.getenv("WEIBO_USER_INPUT", "").strip()
     if weibo_user_input and not weibo_uid:
         weibo_uid = weibo_user_input
@@ -95,8 +104,13 @@ def load_config() -> Config:
     )
 
 
-def request_json(url: str, params: dict[str, Any] | None = None, data: dict[str, Any] | None = None,
-                 headers: dict[str, str] | None = None, timeout: int = 15) -> dict[str, Any]:
+def request_json(
+    url: str,
+    params: dict[str, Any] | None = None,
+    data: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+    timeout: int = 15,
+) -> dict[str, Any]:
     full_url = url
     body: bytes | None = None
 
@@ -110,9 +124,14 @@ def request_json(url: str, params: dict[str, Any] | None = None, data: dict[str,
         req.add_header(k, v)
 
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _OPENER.open(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8")
     except urllib.error.HTTPError as e:
+        if e.code == 432:
+            raise RuntimeError(
+                "HTTP 432（微博风控）: 目标接口拒绝当前请求。"
+                "请稍后重试，或更换出口 IP/代理，并确保使用 m.weibo.cn 链接。"
+            ) from e
         raise RuntimeError(f"HTTP 错误: {e.code} {e.reason}") from e
     except urllib.error.URLError as e:
         raise RuntimeError(f"网络请求失败: {e.reason}") from e
@@ -123,12 +142,55 @@ def request_json(url: str, params: dict[str, Any] | None = None, data: dict[str,
         raise RuntimeError("接口返回不是有效 JSON") from e
 
 
+def warmup_weibo(uid: str) -> None:
+    headers = {
+        "User-Agent": MOBILE_UA,
+        "Referer": "https://m.weibo.cn/",
+        "Accept": "text/html,application/xhtml+xml",
+    }
+    req = urllib.request.Request(f"https://m.weibo.cn/u/{uid}", headers=headers, method="GET")
+    try:
+        with _OPENER.open(req, timeout=10):
+            return
+    except Exception:
+        # 预热失败不终止，继续尝试 API 拉取。
+        return
+
+
 def fetch_latest_weibo(uid: str) -> dict[str, Any]:
-    data = request_json(WEIBO_API, params={"containerid": f"107603{uid}", "count": 1})
+    warmup_weibo(uid)
+    headers = {
+        "User-Agent": MOBILE_UA,
+        "Referer": f"https://m.weibo.cn/u/{uid}",
+        "Accept": "application/json, text/plain, */*",
+        "X-Requested-With": "XMLHttpRequest",
+        "MWeibo-Pwa": "1",
+    }
+    data = request_json(
+        WEIBO_API,
+        params={"containerid": f"107603{uid}", "count": 1},
+        headers=headers,
+    )
 
     cards = data.get("data", {}).get("cards", [])
     if not cards:
-        raise RuntimeError(f"未获取到微博内容，请检查 UID 是否正确: {uid}")
+        # 某些情况下需要补充 type/value 参数。
+        data = request_json(
+            WEIBO_API,
+            params={
+                "type": "uid",
+                "value": uid,
+                "containerid": f"107603{uid}",
+                "count": 1,
+            },
+            headers=headers,
+        )
+        cards = data.get("data", {}).get("cards", [])
+
+    if not cards:
+        raise RuntimeError(
+            f"未获取到微博内容（可能是风控、IP 受限或 UID 不可见）: {uid}"
+        )
 
     mblog = cards[0].get("mblog")
     if not mblog:
